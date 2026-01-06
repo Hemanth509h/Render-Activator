@@ -5,6 +5,10 @@ import requests
 import os
 import datetime
 import logging
+import urllib3
+
+# Suppress insecure request warnings for self-signed certificates or disabled verification
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -33,11 +37,20 @@ def pinger_thread():
                 try:
                     log_msg = f"[{timestamp}] Pinging {url}..."
                     ping_logs.append(log_msg)
-                    response = requests.get(url, timeout=10)
+                    
+                    # Robust headers and SSL verification disabled to bypass Render's common EOF/SSL issues
+                    headers = {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                        'Accept-Language': 'en-US,en;q=0.5',
+                        'Connection': 'keep-alive',
+                    }
+                    
+                    response = requests.get(url, timeout=20, verify=False, headers=headers)
                     res_msg = f"[{timestamp}] Response from {url}: {response.status_code}"
                     ping_logs.append(res_msg)
                 except Exception as e:
-                    err_msg = f"[{timestamp}] Error pinging {url}: {e}"
+                    err_msg = f"[{timestamp}] Error pinging {url}: {str(e)[:200]}"
                     ping_logs.append(err_msg)
         
         while len(ping_logs) > MAX_LOGS:
