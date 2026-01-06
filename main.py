@@ -5,36 +5,38 @@ import threading
 import time
 import requests
 import urllib3
+import json
 from flask import Flask, render_template_string, request, redirect, url_for
-from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy.orm import DeclarativeBase
-
-# Database Setup
-class Base(DeclarativeBase):
-    pass
-
-db = SQLAlchemy(model_class=Base)
-
-class TargetURL(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    url = db.Column(db.String(500), unique=True, nullable=False)
-
-# Suppress insecure request warnings
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
+CONFIG_FILE = 'config.json'
+
+def load_urls():
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, 'r') as f:
+                data = json.load(f)
+                return data.get('urls', [])
+        except Exception as e:
+            logger.error(f"Error loading config.json: {e}")
+    return []
+
+def save_urls(urls_list):
+    try:
+        with open(CONFIG_FILE, 'w') as f:
+            json.dump({'urls': urls_list}, f, indent=4)
+    except Exception as e:
+        logger.error(f"Error saving to config.json: {e}")
+
+# Suppress insecure request warnings
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
 # App Initialization
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY") or "a-very-secret-key"
-app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get("DATABASE_URL")
-app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
-    "pool_recycle": 300,
-    "pool_pre_ping": True,
-}
-db.init_app(app)
 
 # In-memory pinger status
 ping_interval = 1 
@@ -46,8 +48,7 @@ def pinger_thread():
     logger.info("Background pinger thread started.")
     time.sleep(5)
     while pinger_active:
-        with app.app_context():
-            current_urls = [t.url for t in TargetURL.query.all()]
+        current_urls = load_urls()
         
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
@@ -78,19 +79,6 @@ def pinger_thread():
         while len(ping_logs) > MAX_LOGS:
             ping_logs.pop(0)
         time.sleep(ping_interval * 60)
-
-# Hardcoded default URLs
-DEFAULT_URLS = [
-    "https://your-service.onrender.com",
-]
-
-with app.app_context():
-    db.create_all()
-    # Auto-seed hardcoded URLs
-    for url in DEFAULT_URLS:
-        if not TargetURL.query.filter_by(url=url).first():
-            db.session.add(TargetURL(url=url))
-    db.session.commit()
 
 # Start pinger thread
 t = threading.Thread(target=pinger_thread, daemon=True)
@@ -201,7 +189,7 @@ HTML_TEMPLATE = """
 
 @app.route('/')
 def index():
-    urls = [t.url for t in TargetURL.query.all()]
+    urls = load_urls()
     return render_template_string(HTML_TEMPLATE, urls=urls, interval=ping_interval, logs=list(reversed(ping_logs)))
 
 @app.route('/settings', methods=['POST'])
@@ -219,11 +207,10 @@ def update_settings():
 def add_url():
     url = request.form.get('url')
     if url:
-        existing = TargetURL.query.filter_by(url=url).first()
-        if not existing:
-            new_target = TargetURL(url=url)
-            db.session.add(new_target)
-            db.session.commit()
+        urls = load_urls()
+        if url not in urls:
+            urls.append(url)
+            save_urls(urls)
             timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             ping_logs.append(f"[{timestamp}] URL added: {url}")
     return redirect(url_for('index'))
@@ -231,10 +218,10 @@ def add_url():
 @app.route('/remove', methods=['POST'])
 def remove_url():
     url = request.form.get('url')
-    target = TargetURL.query.filter_by(url=url).first()
-    if target:
-        db.session.delete(target)
-        db.session.commit()
+    urls = load_urls()
+    if url in urls:
+        urls.remove(url)
+        save_urls(urls)
     return redirect(url_for('index'))
 
 # Export for both local and serverless
