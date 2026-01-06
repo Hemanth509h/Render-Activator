@@ -24,66 +24,80 @@ HTML_TEMPLATE = """
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
         body { padding: 20px; background-color: #f8f9fa; }
-        .container { max-width: 800px; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-        .log-container { max-height: 300px; overflow-y: auto; background: #212529; color: #0f0; padding: 15px; border-radius: 5px; font-family: monospace; font-size: 0.9em; }
+        .container-fluid { max-width: 1400px; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .log-container { height: 70vh; overflow-y: auto; background: #212529; color: #0f0; padding: 20px; border-radius: 5px; font-family: monospace; font-size: 1.1em; line-height: 1.5; }
+        .status-badge { font-size: 0.8em; }
     </style>
 </head>
 <body>
-    <div class="container mt-5">
-        <h2 class="mb-4">Render Pinger Control</h2>
+    <div class="container-fluid mt-3">
+        <h2 class="mb-4">Render Pinger Control Center</h2>
         
         <div class="row">
-            <div class="col-md-6">
-                <form action="/settings" method="post" class="mb-4">
-                    <label class="form-label">Ping Interval (minutes):</label>
-                    <div class="input-group">
-                        <input type="number" name="interval" class="form-control" value="{{ interval }}" min="1" max="60" required>
-                        <button class="btn btn-secondary" type="submit">Update</button>
-                    </div>
-                </form>
-
-                <form action="/add" method="post" class="mb-4">
-                    <label class="form-label">Add New URL:</label>
-                    <div class="input-group">
-                        <input type="url" name="url" class="form-control" placeholder="https://your-app.onrender.com" required>
-                        <button class="btn btn-primary" type="submit">Add URL</button>
-                    </div>
-                </form>
-
-                <ul class="list-group mb-4">
-                    {% for url in urls %}
-                    <li class="list-group-item d-flex justify-content-between align-items-center">
-                        <span class="text-truncate" style="max-width: 250px;">{{ url }}</span>
-                        <form action="/remove" method="post" style="margin: 0;">
-                            <input type="hidden" name="url" value="{{ url }}">
-                            <button type="submit" class="btn btn-danger btn-sm">Remove</button>
+            <div class="col-lg-3">
+                <div class="card mb-4 shadow-sm">
+                    <div class="card-body">
+                        <h5 class="card-title">Settings</h5>
+                        <form action="/settings" method="post" class="mb-3">
+                            <label class="form-label small">Ping Interval (minutes):</label>
+                            <div class="input-group input-group-sm">
+                                <input type="number" name="interval" class="form-control" value="{{ interval }}" min="1" max="60" required>
+                                <button class="btn btn-secondary" type="submit">Update</button>
+                            </div>
                         </form>
-                    </li>
-                    {% endfor %}
-                    {% if not urls %}
-                    <li class="list-group-item text-muted">No URLs being pinged.</li>
-                    {% endif %}
-                </ul>
+
+                        <form action="/add" method="post" class="mb-3">
+                            <label class="form-label small">Add New URL:</label>
+                            <div class="input-group input-group-sm">
+                                <input type="url" name="url" class="form-control" placeholder="https://your-app.onrender.com" required>
+                                <button class="btn btn-primary" type="submit">Add URL</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <div class="card shadow-sm">
+                    <div class="card-body">
+                        <h5 class="card-title">Active URLs</h5>
+                        <ul class="list-group list-group-flush">
+                            {% for url in urls %}
+                            <li class="list-group-item d-flex justify-content-between align-items-center px-0">
+                                <span class="text-truncate" style="max-width: 180px;" title="{{ url }}">{{ url }}</span>
+                                <form action="/remove" method="post" style="margin: 0;">
+                                    <input type="hidden" name="url" value="{{ url }}">
+                                    <button type="submit" class="btn btn-outline-danger btn-sm border-0">×</button>
+                                </form>
+                            </li>
+                            {% endfor %}
+                            {% if not urls %}
+                            <li class="list-group-item text-muted small px-0">No URLs added.</li>
+                            {% endif %}
+                        </ul>
+                    </div>
+                </div>
+                
+                <div class="mt-4 text-muted small border-top pt-3">
+                    Currently pinging every <strong>{{ interval }}</strong> minutes.
+                </div>
             </div>
             
-            <div class="col-md-6">
-                <label class="form-label">Recent Activity:</label>
+            <div class="col-lg-9">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h5 class="mb-0">System Activity Logs</h5>
+                    <span class="badge bg-dark">Last {{ logs|length }} entries</span>
+                </div>
                 <div class="log-container">
                     {% for log in logs %}
-                    <div>{{ log }}</div>
+                    <div class="mb-1">
+                        <span class="text-muted">{{ log[:21] }}</span>
+                        <span>{{ log[21:] }}</span>
+                    </div>
                     {% endfor %}
                     {% if not logs %}
-                    <div class="text-muted small">Waiting for activity...</div>
+                    <div class="text-muted italic">Waiting for pinger to start...</div>
                     {% endif %}
                 </div>
-                <div class="mt-2 text-muted small">
-                    Showing last {{ max_logs }} events.
-                </div>
             </div>
-        </div>
-        
-        <div class="mt-4 text-muted small border-top pt-3">
-            Currently pinging every {{ interval }} minutes to prevent Render sleep.
         </div>
     </div>
 </body>
