@@ -5,8 +5,6 @@ import requests
 import os
 import datetime
 
-app = Flask(__name__)
-
 # In-memory storage for URLs, settings, and logs
 urls = []
 ping_interval = 14 # Default minutes
@@ -14,6 +12,51 @@ ping_logs = []
 MAX_LOGS = 50
 # Global variable to control the pinger thread
 pinger_active = True
+pinger_started = False
+
+def pinger_thread():
+    global pinger_started
+    if pinger_started:
+        return
+    pinger_started = True
+    print("Background pinger started.")
+    while pinger_active:
+        current_urls = list(urls) # Copy to avoid modification during iteration
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        if not current_urls:
+            log_msg = f"[{timestamp}] No URLs to ping."
+            print(log_msg)
+            ping_logs.append(log_msg)
+        else:
+            for url in current_urls:
+                try:
+                    log_msg = f"[{timestamp}] Pinging {url}..."
+                    print(log_msg)
+                    ping_logs.append(log_msg)
+                    
+                    response = requests.get(url, timeout=10)
+                    
+                    res_msg = f"[{timestamp}] Response from {url}: {response.status_code}"
+                    print(res_msg)
+                    ping_logs.append(res_msg)
+                except Exception as e:
+                    err_msg = f"[{timestamp}] Error pinging {url}: {e}"
+                    print(err_msg)
+                    ping_logs.append(err_msg)
+        
+        # Keep logs within limit
+        while len(ping_logs) > MAX_LOGS:
+            ping_logs.pop(0)
+            
+        # Sleep for the configured interval
+        time.sleep(ping_interval * 60)
+
+# Start pinger thread globally so it runs with Gunicorn
+t = threading.Thread(target=pinger_thread, daemon=True)
+t.start()
+
+app = Flask(__name__)
 
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -108,11 +151,6 @@ HTML_TEMPLATE = """
 def index():
     return render_template_string(HTML_TEMPLATE, urls=urls, interval=ping_interval, logs=list(reversed(ping_logs)), max_logs=MAX_LOGS)
 
-# (new note for Vercel)
-# Vercel is serverless, so background threads like pinger_thread 
-# won't stay alive between requests. This app is best used 
-# in a persistent environment like Replit.
-
 @app.route('/settings', methods=['POST'])
 def update_settings():
     global ping_interval
@@ -138,41 +176,5 @@ def remove_url():
         urls.remove(url)
     return redirect(url_for('index'))
 
-def pinger_thread():
-    print("Background pinger started.")
-    while pinger_active:
-        current_urls = list(urls) # Copy to avoid modification during iteration
-        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        
-        if not current_urls:
-            log_msg = f"[{timestamp}] No URLs to ping."
-            print(log_msg)
-            ping_logs.append(log_msg)
-        else:
-            for url in current_urls:
-                try:
-                    log_msg = f"[{timestamp}] Pinging {url}..."
-                    print(log_msg)
-                    ping_logs.append(log_msg)
-                    
-                    response = requests.get(url, timeout=10)
-                    
-                    res_msg = f"[{timestamp}] Response from {url}: {response.status_code}"
-                    print(res_msg)
-                    ping_logs.append(res_msg)
-                except Exception as e:
-                    err_msg = f"[{timestamp}] Error pinging {url}: {e}"
-                    print(err_msg)
-                    ping_logs.append(err_msg)
-        
-        # Keep logs within limit
-        while len(ping_logs) > MAX_LOGS:
-            ping_logs.pop(0)
-            
-        # Sleep for the configured interval
-        time.sleep(ping_interval * 60)
-
 if __name__ == "__main__":
-    t = threading.Thread(target=pinger_thread, daemon=True)
-    t.start()
     app.run(host='0.0.0.0', port=5000)
