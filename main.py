@@ -6,8 +6,9 @@ import os
 
 app = Flask(__name__)
 
-# In-memory storage for URLs
+# In-memory storage for URLs and settings
 urls = []
+ping_interval = 14 # Default minutes
 # Global variable to control the pinger thread
 pinger_active = True
 
@@ -28,6 +29,14 @@ HTML_TEMPLATE = """
     <div class="container mt-5">
         <h2 class="mb-4">Render Pinger Control</h2>
         
+        <form action="/settings" method="post" class="mb-4">
+            <label class="form-label">Ping Interval (minutes):</label>
+            <div class="input-group">
+                <input type="number" name="interval" class="form-control" value="{{ interval }}" min="1" max="60" required>
+                <button class="btn btn-secondary" type="submit">Update Interval</button>
+            </div>
+        </form>
+
         <form action="/add" method="post" class="mb-4">
             <div class="input-group">
                 <input type="url" name="url" class="form-control" placeholder="https://your-app.onrender.com" required>
@@ -51,7 +60,7 @@ HTML_TEMPLATE = """
         </ul>
         
         <div class="mt-4 text-muted small">
-            Pinging every 14 minutes to prevent Render sleep.
+            Currently pinging every {{ interval }} minutes to prevent Render sleep.
         </div>
     </div>
 </body>
@@ -60,7 +69,18 @@ HTML_TEMPLATE = """
 
 @app.route('/')
 def index():
-    return render_template_string(HTML_TEMPLATE, urls=urls)
+    return render_template_string(HTML_TEMPLATE, urls=urls, interval=ping_interval)
+
+@app.route('/settings', methods=['POST'])
+def update_settings():
+    global ping_interval
+    try:
+        new_interval = int(request.form.get('interval', 14))
+        if 1 <= new_interval <= 1440: # Max 24 hours
+            ping_interval = new_interval
+    except ValueError:
+        pass
+    return redirect(url_for('index'))
 
 @app.route('/add', methods=['POST'])
 def add_url():
@@ -87,8 +107,8 @@ def pinger_thread():
             except Exception as e:
                 print(f"Error pinging {url}: {e}")
         
-        # Sleep for 14 minutes
-        time.sleep(14 * 60)
+        # Sleep for the configured interval
+        time.sleep(ping_interval * 60)
 
 if __name__ == "__main__":
     t = threading.Thread(target=pinger_thread, daemon=True)

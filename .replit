@@ -43,3 +43,6 @@ waitForPort = 5000
 
 [userenv.shared]
 PYTHONPATH = "/home/runner/workspace/.pythonlibs/lib/python3.12/site-packages"
+
+[agent]
+expertMode = true
