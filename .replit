@@ -49,3 +49,4 @@ PYTHONPATH = "/home/runner/workspace/.pythonlibs/lib/python3.12/site-packages"
 
 [agent]
 expertMode = true
+integrations = ["python_database:1.0.0"]

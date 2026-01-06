@@ -5,3 +5,5 @@ flask
 gunicorn
 requests
 urllib3
+flask-sqlalchemy
+psycopg2-binary

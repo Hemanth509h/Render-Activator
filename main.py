@@ -1,21 +1,42 @@
-from flask import Flask, render_template_string, request, redirect, url_for
-import threading
-import time
-import requests
 import os
 import datetime
 import logging
+import threading
+import time
+import requests
 import urllib3
+from flask import Flask, render_template_string, request, redirect, url_for
+from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy.orm import DeclarativeBase
 
-# Suppress insecure request warnings for self-signed certificates or disabled verification
+# Database Setup
+class Base(DeclarativeBase):
+    pass
+
+db = SQLAlchemy(model_class=Base)
+
+class TargetURL(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    url = db.Column(db.String(500), unique=True, nullable=False)
+
+# Suppress insecure request warnings
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
-# In-memory storage
-urls = []
+# App Initialization
+app = Flask(__name__)
+app.secret_key = os.environ.get("FLASK_SECRET_KEY") or "a-very-secret-key"
+app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get("DATABASE_URL")
+app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
+    "pool_recycle": 300,
+    "pool_pre_ping": True,
+}
+db.init_app(app)
+
+# In-memory pinger status
 ping_interval = 1 
 ping_logs = []
 MAX_LOGS = 100
@@ -23,9 +44,11 @@ pinger_active = True
 
 def pinger_thread():
     logger.info("Background pinger thread started.")
-    time.sleep(2)
+    time.sleep(5)
     while pinger_active:
-        current_urls = list(urls)
+        with app.app_context():
+            current_urls = [t.url for t in TargetURL.query.all()]
+        
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
         if not current_urls:
@@ -38,7 +61,6 @@ def pinger_thread():
                     log_msg = f"[{timestamp}] Pinging {url}..."
                     ping_logs.append(log_msg)
                     
-                    # Robust headers and SSL verification disabled to bypass Render's common EOF/SSL issues
                     headers = {
                         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
                         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
@@ -57,7 +79,8 @@ def pinger_thread():
             ping_logs.pop(0)
         time.sleep(ping_interval * 60)
 
-app = Flask(__name__)
+with app.app_context():
+    db.create_all()
 
 # Start pinger thread
 t = threading.Thread(target=pinger_thread, daemon=True)
@@ -168,6 +191,7 @@ HTML_TEMPLATE = """
 
 @app.route('/')
 def index():
+    urls = [t.url for t in TargetURL.query.all()]
     return render_template_string(HTML_TEMPLATE, urls=urls, interval=ping_interval, logs=list(reversed(ping_logs)))
 
 @app.route('/settings', methods=['POST'])
@@ -184,17 +208,23 @@ def update_settings():
 @app.route('/add', methods=['POST'])
 def add_url():
     url = request.form.get('url')
-    if url and url not in urls:
-        urls.append(url)
-        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        ping_logs.append(f"[{timestamp}] URL added: {url}")
+    if url:
+        existing = TargetURL.query.filter_by(url=url).first()
+        if not existing:
+            new_target = TargetURL(url=url)
+            db.session.add(new_target)
+            db.session.commit()
+            timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            ping_logs.append(f"[{timestamp}] URL added: {url}")
     return redirect(url_for('index'))
 
 @app.route('/remove', methods=['POST'])
 def remove_url():
     url = request.form.get('url')
-    if url in urls:
-        urls.remove(url)
+    target = TargetURL.query.filter_by(url=url).first()
+    if target:
+        db.session.delete(target)
+        db.session.commit()
     return redirect(url_for('index'))
 
 # Export for both local and serverless
