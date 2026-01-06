@@ -125,8 +125,7 @@ HTML_TEMPLATE = """
                 </div>
                 
                 <div class="mt-4 text-muted small border-top pt-3 text-center">
-                    <p>Auto-refreshing every 10s</p>
-                    <script>setTimeout(() => location.reload(), 10000);</script>
+                    <p>Logs auto-refreshing every 5s</p>
                 </div>
             </div>
             
@@ -135,7 +134,7 @@ HTML_TEMPLATE = """
                     <h5 class="mb-0">System Activity Logs</h5>
                     <span class="badge bg-dark">{{ logs|length }} entries</span>
                 </div>
-                <div class="log-container">
+                <div class="log-container" id="log-container">
                     {% for log in logs %}
                     <div class="mb-1">
                         <span class="text-muted">{{ log[:21] }}</span>
@@ -146,6 +145,25 @@ HTML_TEMPLATE = """
             </div>
         </div>
     </div>
+
+    <script>
+        function refreshLogs() {
+            fetch('/')
+                .then(response => response.text())
+                .then(html => {
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(html, 'text/html');
+                    const newLogs = doc.getElementById('log-container').innerHTML;
+                    const logContainer = document.getElementById('log-container');
+                    if (logContainer.innerHTML !== newLogs) {
+                        logContainer.innerHTML = newLogs;
+                    }
+                })
+                .catch(err => console.error('Error refreshing logs:', err));
+        }
+        // Refresh logs every 5 seconds without reloading the whole page
+        setInterval(refreshLogs, 5000);
+    </script>
 </body>
 </html>
 """
