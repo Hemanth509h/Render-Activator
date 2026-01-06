@@ -1,5 +1,8 @@
 from flask import Flask, render_template_string, request, redirect, url_for
+import threading
+import time
 import requests
+import os
 import datetime
 import logging
 
@@ -7,18 +10,51 @@ import logging
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
-# In-memory storage (Note: Vercel is serverless, memory is not persistent)
+# In-memory storage
 urls = []
-ping_interval = 1
+ping_interval = 1 
 ping_logs = []
+MAX_LOGS = 100
+pinger_active = True
+
+def pinger_thread():
+    logger.info("Background pinger thread started.")
+    time.sleep(2)
+    while pinger_active:
+        current_urls = list(urls)
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        if not current_urls:
+            log_msg = f"[{timestamp}] Waiting for URLs to ping..."
+            if not ping_logs or "Waiting" not in ping_logs[-1]:
+                ping_logs.append(log_msg)
+        else:
+            for url in current_urls:
+                try:
+                    log_msg = f"[{timestamp}] Pinging {url}..."
+                    ping_logs.append(log_msg)
+                    response = requests.get(url, timeout=10)
+                    res_msg = f"[{timestamp}] Response from {url}: {response.status_code}"
+                    ping_logs.append(res_msg)
+                except Exception as e:
+                    err_msg = f"[{timestamp}] Error pinging {url}: {e}"
+                    ping_logs.append(err_msg)
+        
+        while len(ping_logs) > MAX_LOGS:
+            ping_logs.pop(0)
+        time.sleep(ping_interval * 60)
 
 app = Flask(__name__)
+
+# Start pinger thread
+t = threading.Thread(target=pinger_thread, daemon=True)
+t.start()
 
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Render Pinger (Vercel Mode)</title>
+    <title>Render Pinger</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
@@ -29,13 +65,8 @@ HTML_TEMPLATE = """
 </head>
 <body>
     <div class="container-fluid mt-3">
-        <h2 class="mb-4">Render Pinger <span class="badge bg-warning text-dark">Vercel Serverless</span></h2>
+        <h2 class="mb-4">Render Pinger Control Center</h2>
         
-        <div class="alert alert-info">
-            <strong>Note:</strong> Vercel is serverless. Background threads do not persist. 
-            This interface is for configuration only. For actual pinging, use a Cron Job.
-        </div>
-
         <div class="row">
             <div class="col-lg-3">
                 <div class="card mb-4 shadow-sm">
@@ -72,18 +103,52 @@ HTML_TEMPLATE = """
                                 </form>
                             </li>
                             {% endfor %}
+                            {% if not urls %}
+                            <li class="list-group-item text-muted small px-0">No URLs added.</li>
+                            {% endif %}
                         </ul>
                     </div>
+                </div>
+                
+                <div class="mt-4 text-muted small border-top pt-3 text-center">
+                    <p>Logs auto-refreshing every 5s</p>
                 </div>
             </div>
             
             <div class="col-lg-9">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h5 class="mb-0">System Activity Logs</h5>
+                    <span class="badge bg-dark">{{ logs|length }} entries</span>
+                </div>
                 <div class="log-container" id="log-container">
-                    <div class="text-muted italic">Logs are not persistent in Serverless mode.</div>
+                    {% for log in logs %}
+                    <div class="mb-1">
+                        <span class="text-muted">{{ log[:21] }}</span>
+                        <span>{{ log[21:] }}</span>
+                    </div>
+                    {% endfor %}
                 </div>
             </div>
         </div>
     </div>
+
+    <script>
+        function refreshLogs() {
+            fetch('/')
+                .then(response => response.text())
+                .then(html => {
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(html, 'text/html');
+                    const newLogs = doc.getElementById('log-container').innerHTML;
+                    const logContainer = document.getElementById('log-container');
+                    if (logContainer.innerHTML !== newLogs) {
+                        logContainer.innerHTML = newLogs;
+                    }
+                })
+                .catch(err => console.error('Error refreshing logs:', err));
+        }
+        setInterval(refreshLogs, 5000);
+    </script>
 </body>
 </html>
 """
@@ -108,6 +173,8 @@ def add_url():
     url = request.form.get('url')
     if url and url not in urls:
         urls.append(url)
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        ping_logs.append(f"[{timestamp}] URL added: {url}")
     return redirect(url_for('index'))
 
 @app.route('/remove', methods=['POST'])
@@ -117,5 +184,7 @@ def remove_url():
         urls.remove(url)
     return redirect(url_for('index'))
 
-# Vercel expectations: app or application
+# Export for both local and serverless
 application = app
+if __name__ == "__main__":
+    app.run(host='0.0.0.0', port=5000)
