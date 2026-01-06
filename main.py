@@ -79,8 +79,18 @@ def pinger_thread():
             ping_logs.pop(0)
         time.sleep(ping_interval * 60)
 
+# Hardcoded default URLs
+DEFAULT_URLS = [
+    "https://your-service.onrender.com",
+]
+
 with app.app_context():
     db.create_all()
+    # Auto-seed hardcoded URLs
+    for url in DEFAULT_URLS:
+        if not TargetURL.query.filter_by(url=url).first():
+            db.session.add(TargetURL(url=url))
+    db.session.commit()
 
 # Start pinger thread
 t = threading.Thread(target=pinger_thread, daemon=True)
