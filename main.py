@@ -91,8 +91,6 @@ def pinger_thread():
         time.sleep(14 * 60)
 
 if __name__ == "__main__":
-    # Start the pinger in a separate thread
     t = threading.Thread(target=pinger_thread, daemon=True)
     t.start()
-    # Run Flask app on port 5000 (standard for Replit)
     app.run(host='0.0.0.0', port=5000)
