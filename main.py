@@ -11,6 +11,7 @@ logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 # In-memory storage for URLs, settings, and logs
+# Global variables need careful handling with Gunicorn
 urls = []
 ping_interval = 1 # Changed default to 1 min for faster feedback
 ping_logs = []
@@ -19,13 +20,14 @@ pinger_active = True
 
 def pinger_thread():
     logger.info("Background pinger thread started.")
+    # Wait a bit for the app to settle
+    time.sleep(2)
     while pinger_active:
-        # We need to use global urls because it might be modified by the web server
         current_urls = list(urls)
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
         if not current_urls:
-            log_msg = f"[{timestamp}] Waiting for URLs to ping..."
+            log_msg = f"[{timestamp}] Waiting for URLs to ping... (Current Interval: {ping_interval} min)"
             logger.debug(log_msg)
             # Avoid flooding logs if no URLs
             if not ping_logs or "Waiting" not in ping_logs[-1]:
@@ -58,8 +60,7 @@ def pinger_thread():
 # Initialize app first
 app = Flask(__name__)
 
-# Start pinger thread after app init but before routes
-# This ensures it's available globally in the module
+# Start pinger thread
 t = threading.Thread(target=pinger_thread, daemon=True)
 t.start()
 
@@ -124,8 +125,8 @@ HTML_TEMPLATE = """
                 </div>
                 
                 <div class="mt-4 text-muted small border-top pt-3 text-center">
-                    <p>Auto-refreshing every 30s</p>
-                    <script>setTimeout(() => location.reload(), 30000);</script>
+                    <p>Auto-refreshing every 10s</p>
+                    <script>setTimeout(() => location.reload(), 10000);</script>
                 </div>
             </div>
             
@@ -171,6 +172,9 @@ def add_url():
     if url and url not in urls:
         urls.append(url)
         logger.info(f"Added URL: {url}")
+        # Trigger an immediate ping update log
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        ping_logs.append(f"[{timestamp}] URL added, will ping in next cycle.")
     return redirect(url_for('index'))
 
 @app.route('/remove', methods=['POST'])
