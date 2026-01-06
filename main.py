@@ -4,45 +4,47 @@ import time
 import requests
 import os
 import datetime
+import logging
+
+# Configure logging to see activity in the console
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 # In-memory storage for URLs, settings, and logs
 urls = []
-ping_interval = 14 # Default minutes
+ping_interval = 1 # Changed default to 1 min for faster feedback
 ping_logs = []
-MAX_LOGS = 50
-# Global variable to control the pinger thread
+MAX_LOGS = 100
 pinger_active = True
-pinger_started = False
 
 def pinger_thread():
-    global pinger_started
-    if pinger_started:
-        return
-    pinger_started = True
-    print("Background pinger started.")
+    logger.info("Background pinger thread started.")
     while pinger_active:
-        current_urls = list(urls) # Copy to avoid modification during iteration
+        # We need to use global urls because it might be modified by the web server
+        current_urls = list(urls)
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
         if not current_urls:
-            log_msg = f"[{timestamp}] No URLs to ping."
-            print(log_msg)
-            ping_logs.append(log_msg)
+            log_msg = f"[{timestamp}] Waiting for URLs to ping..."
+            logger.debug(log_msg)
+            # Avoid flooding logs if no URLs
+            if not ping_logs or "Waiting" not in ping_logs[-1]:
+                ping_logs.append(log_msg)
         else:
             for url in current_urls:
                 try:
                     log_msg = f"[{timestamp}] Pinging {url}..."
-                    print(log_msg)
+                    logger.info(log_msg)
                     ping_logs.append(log_msg)
                     
                     response = requests.get(url, timeout=10)
                     
                     res_msg = f"[{timestamp}] Response from {url}: {response.status_code}"
-                    print(res_msg)
+                    logger.info(res_msg)
                     ping_logs.append(res_msg)
                 except Exception as e:
                     err_msg = f"[{timestamp}] Error pinging {url}: {e}"
-                    print(err_msg)
+                    logger.error(err_msg)
                     ping_logs.append(err_msg)
         
         # Keep logs within limit
@@ -50,13 +52,16 @@ def pinger_thread():
             ping_logs.pop(0)
             
         # Sleep for the configured interval
+        logger.debug(f"Pinger sleeping for {ping_interval} minute(s).")
         time.sleep(ping_interval * 60)
 
-# Start pinger thread globally so it runs with Gunicorn
+# Initialize app first
+app = Flask(__name__)
+
+# Start pinger thread after app init but before routes
+# This ensures it's available globally in the module
 t = threading.Thread(target=pinger_thread, daemon=True)
 t.start()
-
-app = Flask(__name__)
 
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -69,7 +74,6 @@ HTML_TEMPLATE = """
         body { padding: 20px; background-color: #f8f9fa; }
         .container-fluid { max-width: 1400px; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
         .log-container { height: 70vh; overflow-y: auto; background: #212529; color: #0f0; padding: 20px; border-radius: 5px; font-family: monospace; font-size: 1.1em; line-height: 1.5; }
-        .status-badge { font-size: 0.8em; }
     </style>
 </head>
 <body>
@@ -84,7 +88,7 @@ HTML_TEMPLATE = """
                         <form action="/settings" method="post" class="mb-3">
                             <label class="form-label small">Ping Interval (minutes):</label>
                             <div class="input-group input-group-sm">
-                                <input type="number" name="interval" class="form-control" value="{{ interval }}" min="1" max="60" required>
+                                <input type="number" name="interval" class="form-control" value="{{ interval }}" min="1" max="1440" required>
                                 <button class="btn btn-secondary" type="submit">Update</button>
                             </div>
                         </form>
@@ -92,7 +96,7 @@ HTML_TEMPLATE = """
                         <form action="/add" method="post" class="mb-3">
                             <label class="form-label small">Add New URL:</label>
                             <div class="input-group input-group-sm">
-                                <input type="url" name="url" class="form-control" placeholder="https://your-app.onrender.com" required>
+                                <input type="url" name="url" class="form-control" placeholder="https://example.com" required>
                                 <button class="btn btn-primary" type="submit">Add URL</button>
                             </div>
                         </form>
@@ -119,15 +123,16 @@ HTML_TEMPLATE = """
                     </div>
                 </div>
                 
-                <div class="mt-4 text-muted small border-top pt-3">
-                    Currently pinging every <strong>{{ interval }}</strong> minutes.
+                <div class="mt-4 text-muted small border-top pt-3 text-center">
+                    <p>Auto-refreshing every 30s</p>
+                    <script>setTimeout(() => location.reload(), 30000);</script>
                 </div>
             </div>
             
             <div class="col-lg-9">
                 <div class="d-flex justify-content-between align-items-center mb-2">
                     <h5 class="mb-0">System Activity Logs</h5>
-                    <span class="badge bg-dark">Last {{ logs|length }} entries</span>
+                    <span class="badge bg-dark">{{ logs|length }} entries</span>
                 </div>
                 <div class="log-container">
                     {% for log in logs %}
@@ -136,9 +141,6 @@ HTML_TEMPLATE = """
                         <span>{{ log[21:] }}</span>
                     </div>
                     {% endfor %}
-                    {% if not logs %}
-                    <div class="text-muted italic">Waiting for pinger to start...</div>
-                    {% endif %}
                 </div>
             </div>
         </div>
@@ -149,15 +151,16 @@ HTML_TEMPLATE = """
 
 @app.route('/')
 def index():
-    return render_template_string(HTML_TEMPLATE, urls=urls, interval=ping_interval, logs=list(reversed(ping_logs)), max_logs=MAX_LOGS)
+    return render_template_string(HTML_TEMPLATE, urls=urls, interval=ping_interval, logs=list(reversed(ping_logs)))
 
 @app.route('/settings', methods=['POST'])
 def update_settings():
     global ping_interval
     try:
-        new_interval = int(request.form.get('interval', 14))
-        if 1 <= new_interval <= 1440: # Max 24 hours
+        new_interval = int(request.form.get('interval', 1))
+        if 1 <= new_interval <= 1440:
             ping_interval = new_interval
+            logger.info(f"Interval updated to {ping_interval} minutes")
     except ValueError:
         pass
     return redirect(url_for('index'))
@@ -167,6 +170,7 @@ def add_url():
     url = request.form.get('url')
     if url and url not in urls:
         urls.append(url)
+        logger.info(f"Added URL: {url}")
     return redirect(url_for('index'))
 
 @app.route('/remove', methods=['POST'])
@@ -174,6 +178,7 @@ def remove_url():
     url = request.form.get('url')
     if url in urls:
         urls.remove(url)
+        logger.info(f"Removed URL: {url}")
     return redirect(url_for('index'))
 
 if __name__ == "__main__":
