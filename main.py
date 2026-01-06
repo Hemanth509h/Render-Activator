@@ -1,41 +1,98 @@
+from flask import Flask, render_template_string, request, redirect, url_for
+import threading
 import time
 import requests
-import sys
 import os
 
-# Default URL list - users can add their URLs here
-URLS = [
-    # "https://your-render-app.onrender.com",
-]
+app = Flask(__name__)
 
-# You can also pass URLs as command line arguments
-if len(sys.argv) > 1:
-    URLS.extend(sys.argv[1:])
+# In-memory storage for URLs
+urls = []
+# Global variable to control the pinger thread
+pinger_active = True
 
-# Render spins down free tier apps after 15 minutes of inactivity.
-# We ping every 14 minutes to keep it active.
-INTERVAL = int(os.environ.get("PING_INTERVAL", 14 * 60))
-
-def ping_urls():
-    if not URLS:
-        print("No URLs configured.")
-        print("Please edit 'main.py' to add URLs or pass them as arguments.")
-        print("Usage: python main.py <url1> <url2> ...")
-        return
-
-    print(f"Starting pinger for {len(URLS)} URLs. Interval: {INTERVAL} seconds.")
-    
-    while True:
-        for url in URLS:
-            try:
-                print(f"[{time.strftime('%H:%M:%S')}] Pinging {url}...")
-                response = requests.get(url, timeout=10)
-                print(f"  Status: {response.status_code}")
-            except Exception as e:
-                print(f"  Failed: {str(e)}")
+HTML_TEMPLATE = """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Render Pinger</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { padding: 20px; background-color: #f8f9fa; }
+        .container { max-width: 600px; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .status-badge { font-size: 0.8em; }
+    </style>
+</head>
+<body>
+    <div class="container mt-5">
+        <h2 class="mb-4">Render Pinger Control</h2>
         
-        print(f"Sleeping for {INTERVAL} seconds...")
-        time.sleep(INTERVAL)
+        <form action="/add" method="post" class="mb-4">
+            <div class="input-group">
+                <input type="url" name="url" class="form-control" placeholder="https://your-app.onrender.com" required>
+                <button class="btn btn-primary" type="submit">Add URL</button>
+            </div>
+        </form>
+
+        <ul class="list-group">
+            {% for url in urls %}
+            <li class="list-group-item d-flex justify-content-between align-items-center">
+                {{ url }}
+                <form action="/remove" method="post" style="margin: 0;">
+                    <input type="hidden" name="url" value="{{ url }}">
+                    <button type="submit" class="btn btn-danger btn-sm">Remove</button>
+                </form>
+            </li>
+            {% endfor %}
+            {% if not urls %}
+            <li class="list-group-item text-muted">No URLs being pinged.</li>
+            {% endif %}
+        </ul>
+        
+        <div class="mt-4 text-muted small">
+            Pinging every 14 minutes to prevent Render sleep.
+        </div>
+    </div>
+</body>
+</html>
+"""
+
+@app.route('/')
+def index():
+    return render_template_string(HTML_TEMPLATE, urls=urls)
+
+@app.route('/add', methods=['POST'])
+def add_url():
+    url = request.form.get('url')
+    if url and url not in urls:
+        urls.append(url)
+    return redirect(url_for('index'))
+
+@app.route('/remove', methods=['POST'])
+def remove_url():
+    url = request.form.get('url')
+    if url in urls:
+        urls.remove(url)
+    return redirect(url_for('index'))
+
+def pinger_thread():
+    print("Background pinger started.")
+    while pinger_active:
+        current_urls = list(urls) # Copy to avoid modification during iteration
+        for url in current_urls:
+            try:
+                print(f"Pinging {url}...")
+                requests.get(url, timeout=10)
+            except Exception as e:
+                print(f"Error pinging {url}: {e}")
+        
+        # Sleep for 14 minutes
+        time.sleep(14 * 60)
 
 if __name__ == "__main__":
-    ping_urls()
+    # Start the pinger in a separate thread
+    t = threading.Thread(target=pinger_thread, daemon=True)
+    t.start()
+    # Run Flask app on port 5000 (standard for Replit)
+    app.run(host='0.0.0.0', port=5000)
