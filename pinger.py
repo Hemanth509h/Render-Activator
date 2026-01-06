@@ -4,7 +4,7 @@ import sys
 
 # Default URL list - users can add their URLs here
 URLS = [
-    # "https://your-render-app.onrender.com",
+     "https://canteen-f0rq.onrender.com",
 ]
 
 # You can also pass URLs as command line arguments
