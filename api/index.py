@@ -1,8 +1,5 @@
 from flask import Flask, render_template_string, request, redirect, url_for
-import threading
-import time
 import requests
-import os
 import datetime
 import logging
 
@@ -14,8 +11,6 @@ logger = logging.getLogger(__name__)
 urls = []
 ping_interval = 1
 ping_logs = []
-MAX_LOGS = 100
-pinger_active = True
 
 app = Flask(__name__)
 
@@ -122,5 +117,5 @@ def remove_url():
         urls.remove(url)
     return redirect(url_for('index'))
 
-# This is for Vercel
-handler = app
+# Vercel expectations: app or application
+application = app
