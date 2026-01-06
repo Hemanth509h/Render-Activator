@@ -67,9 +67,16 @@ HTML_TEMPLATE = """
 </html>
 """
 
+# ... (existing code above index function)
+
 @app.route('/')
 def index():
     return render_template_string(HTML_TEMPLATE, urls=urls, interval=ping_interval)
+
+# (new note for Vercel)
+# Vercel is serverless, so background threads like pinger_thread 
+# won't stay alive between requests. This app is best used 
+# in a persistent environment like Replit.
 
 @app.route('/settings', methods=['POST'])
 def update_settings():
