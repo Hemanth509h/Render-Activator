@@ -1,10 +1,10 @@
-modules = ["python-3.11"]
+modules = ["bash", "python-3.12"]
 run = "npm run dev"
 hidden = [".config", ".git", "generated-icon.png", "node_modules", "dist"]
 
 [nix]
 channel = "stable-25_05"
-packages = ["openssl", "postgresql", "python3", "python312Packages.gunicorn", "python312Packages.flask", "python312Packages.requests"]
+packages = ["openssl", "postgresql", "python3", "python312Packages.flask", "python312Packages.gunicorn", "python312Packages.requests"]
 
 [[ports]]
 localPort = 5000
@@ -38,6 +38,9 @@ author = "agent"
 task = "shell.exec"
 args = "gunicorn --bind 0.0.0.0:5000 --reuse-port --reload main:app"
 waitForPort = 5000
+
+[workflows.workflow.metadata]
+outputType = "webview"
 
 [userenv]
 
