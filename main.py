@@ -110,7 +110,8 @@ def pinger_thread():
         for url in current_urls:
             try:
                 print(f"Pinging {url}...")
-                requests.get(url, timeout=10)
+                response = requests.get(url, timeout=10)
+                print(f"Response from {url}: {response.status_code}")
             except Exception as e:
                 print(f"Error pinging {url}: {e}")
         
