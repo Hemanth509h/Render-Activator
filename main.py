@@ -57,10 +57,14 @@ def pinger_thread():
             if not ping_logs or "Waiting" not in ping_logs[-1]:
                 ping_logs.append(log_msg)
         else:
+            logger.info(f"Starting ping cycle for {len(current_urls)} URLs")
             for url in current_urls:
                 try:
-                    log_msg = f"[{timestamp}] Pinging {url}..."
+                    # Individual timestamp for each ping
+                    ping_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    log_msg = f"[{ping_time}] Pinging {url}..."
                     ping_logs.append(log_msg)
+                    logger.debug(f"Sending request to {url}")
                     
                     headers = {
                         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
@@ -69,15 +73,23 @@ def pinger_thread():
                         'Connection': 'keep-alive',
                     }
                     
-                    response = requests.get(url, timeout=20, verify=False, headers=headers)
-                    res_msg = f"[{timestamp}] Response from {url}: {response.status_code}"
-                    ping_logs.append(res_msg)
+                    # Use a fresh session for each request to ensure connection isolation
+                    with requests.Session() as session:
+                        response = session.get(url, timeout=30, verify=False, headers=headers)
+                        res_msg = f"[{ping_time}] Response from {url}: {response.status_code}"
+                        ping_logs.append(res_msg)
+                        logger.info(f"Ping successful for {url}: {response.status_code}")
                 except Exception as e:
-                    err_msg = f"[{timestamp}] Error pinging {url}: {str(e)[:200]}"
+                    err_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    err_msg = f"[{err_time}] Error pinging {url}: {str(e)[:200]}"
                     ping_logs.append(err_msg)
+                    logger.error(f"Ping failed for {url}: {e}")
         
         while len(ping_logs) > MAX_LOGS:
             ping_logs.pop(0)
+        
+        # Log wait time
+        logger.info(f"Ping cycle complete. Waiting {ping_interval} minute(s).")
         time.sleep(ping_interval * 60)
 
 # Start pinger thread
